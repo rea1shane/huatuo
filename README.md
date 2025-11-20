@@ -50,6 +50,7 @@ Supports kernel versions from 4.18 and later.
 | 1.0.0  | 4.18.x         | CentOS 8.x                                    |
 | 1.0.0  | 5.4.x          | OpenCloudOS V8/Ubuntu 20.04                   |
 | 1.0.0  | 5.10.x         | OpenEuler 22.03/Anolis OS 8.10                |
+| 1.0.0  | 5.15.x         | Ubuntu 22.04                                  |
 | 1.0.0  | 6.6.x          | OpenEuler 24.03/Anolis OS 23.3/OpenCloudOS V9 |
 | 1.0.0  | 6.8.x          | Ubuntu 24.04                                  |
 | 1.0.0  | 6.14.x         | Fedora 42                                     |
@@ -59,10 +60,9 @@ Supports kernel versions from 4.18 and later.
 For more information, visit [https://huatuo.tech](https://huatuo.tech/).
 
 # Contact Us
+- WeChat Group and Official Account:
 
-@[hao022](https://github.com/hao022)
-@[nashuiliang](https://github.com/nashuiliang)
-@[fanzu8](https://github.com/fanzuba)
+![](./docs/img/contact-weixin.png)
 
 # License
 
