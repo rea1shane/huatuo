@@ -64,13 +64,13 @@ func (m *metaxGpuCollector) Update() ([]*metric.Data, error) {
 	var gpus []int
 
 	// Native and VF GPUs
-	nativeAndVfGpuCount := metaxSmlGetNativeAndVfGpuCount()
+	nativeAndVfGpuCount := int(metaxSmlGetNativeAndVfGpuCount())
 	for i := 0; i < nativeAndVfGpuCount; i++ {
 		gpus = append(gpus, i)
 	}
 
 	// PF GPUs
-	pfGpuCount := metaxSmlGetPfGpuCount()
+	pfGpuCount := int(metaxSmlGetPfGpuCount())
 	for i := 100; i < 100+pfGpuCount; i++ {
 		gpus = append(gpus, i)
 	}
@@ -103,11 +103,22 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 			"uuid":      gpuInfo.uuid,
 			"bdf":       gpuInfo.bdf,
 			"mode":      string(gpuInfo.mode),
-			"die_count": strconv.Itoa(gpuInfo.dieCount),
+			"die_count": strconv.Itoa(int(gpuInfo.dieCount)),
 		}),
 	)
 
-	// Board electric infos
+	// GPU status
+	if gpuStatus, err := metaxSmlGetGpuStatus(gpu); metaxIsSmlOperationNotSupportedError(err) {
+
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get gpu status: %v", err)
+	} else {
+		metric.NewGaugeData("available", float64(gpuStatus), "GPU status, 0 means not available, 1 means available.", map[string]string{
+			"gpu": strconv.Itoa(gpu),
+		})
+	}
+
+	// Board electric
 	if boardWayElectricInfos, err := metaxSmlListGpuBoardWayElectricInfos(gpu); metaxIsSmlOperationNotSupportedError(err) {
 
 	} else if err != nil {
@@ -115,15 +126,15 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 	} else {
 		for i, info := range boardWayElectricInfos {
 			metrics = append(metrics,
-				metric.NewGaugeData("board_voltage_volts", info.voltage/1000, "Voltage of each power supply of the GPU board.", map[string]string{
+				metric.NewGaugeData("board_voltage_volts", float64(info.voltage)/1000, "Voltage of each power supply of the GPU board.", map[string]string{
 					"gpu": strconv.Itoa(gpu),
 					"way": strconv.Itoa(i),
 				}),
-				metric.NewGaugeData("board_current_amperes", info.current/1000, "Current of each power supply of the GPU board.", map[string]string{
+				metric.NewGaugeData("board_current_amperes", float64(info.current)/1000, "Current of each power supply of the GPU board.", map[string]string{
 					"gpu": strconv.Itoa(gpu),
 					"way": strconv.Itoa(i),
 				}),
-				metric.NewGaugeData("board_power_watts", info.power/1000, "Power of each power supply of the GPU board.", map[string]string{
+				metric.NewGaugeData("board_power_watts", float64(info.power)/1000, "Power of each power supply of the GPU board.", map[string]string{
 					"gpu": strconv.Itoa(gpu),
 					"way": strconv.Itoa(i),
 				}),
@@ -141,12 +152,13 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 			metric.NewGaugeData("pcie_link_speed_transfers_per_second", pcieLinkInfo.speed*1000*1000*1000, "GPU PCIe current link speed.", map[string]string{
 				"gpu": strconv.Itoa(gpu),
 			}),
-			metric.NewGaugeData("pcie_link_width_lanes", pcieLinkInfo.width, "GPU PCIe current link width.", map[string]string{
+			metric.NewGaugeData("pcie_link_width_lanes", float64(pcieLinkInfo.width), "GPU PCIe current link width.", map[string]string{
 				"gpu": strconv.Itoa(gpu),
 			}),
 		)
 	}
 
+	// PCIe link max
 	if pcieLinkMaxInfo, err := metaxSmlGetGpuPcieLinkMaxInfo(gpu); metaxIsSmlOperationNotSupportedError(err) {
 
 	} else if err != nil {
@@ -156,7 +168,7 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 			metric.NewGaugeData("pcie_link_speed_max_transfers_per_second", pcieLinkMaxInfo.speed*1000*1000*1000, "GPU PCIe max link speed.", map[string]string{
 				"gpu": strconv.Itoa(gpu),
 			}),
-			metric.NewGaugeData("pcie_link_width_max_lanes", pcieLinkMaxInfo.width, "GPU PCIe max link width.", map[string]string{
+			metric.NewGaugeData("pcie_link_width_max_lanes", float64(pcieLinkMaxInfo.width), "GPU PCIe max link width.", map[string]string{
 				"gpu": strconv.Itoa(gpu),
 			}),
 		)
@@ -169,16 +181,16 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 		return nil, fmt.Errorf("failed to get pcie throughput info: %v", err)
 	} else {
 		metrics = append(metrics,
-			metric.NewGaugeData("pcie_throughput_receive_bytes_per_second", pcieThroughputInfo.receiveRate*1000*1000, "GPU PCIe receive throughput.", map[string]string{
+			metric.NewGaugeData("pcie_receive_bytes_per_second", float64(pcieThroughputInfo.receiveRate)*1000*1000, "GPU PCIe receive throughput.", map[string]string{
 				"gpu": strconv.Itoa(gpu),
 			}),
-			metric.NewGaugeData("pcie_throughput_transmit_bytes_per_second", pcieThroughputInfo.transmitRate*1000*1000, "GPU PCIe transmit throughput.", map[string]string{
+			metric.NewGaugeData("pcie_transmit_bytes_per_second", float64(pcieThroughputInfo.transmitRate)*1000*1000, "GPU PCIe transmit throughput.", map[string]string{
 				"gpu": strconv.Itoa(gpu),
 			}),
 		)
 	}
 
-	// MetaXLink
+	// MetaXLink link
 	if metaxlinkLinkInfos, err := metaxSmlListGpuMetaxlinkLinkInfos(gpu); metaxIsSmlOperationNotSupportedError(err) {
 
 	} else if err != nil {
@@ -188,11 +200,11 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 			metrics = append(metrics,
 				metric.NewGaugeData("metaxlink_link_speed_transfers_per_second", info.speed*1000*1000*1000, "GPU MetaXLink current link speed.", map[string]string{
 					"gpu":       strconv.Itoa(gpu),
-					"metaxlink": strconv.Itoa(i),
+					"metaxlink": strconv.Itoa(i + 1),
 				}),
-				metric.NewGaugeData("metaxlink_link_width_lanes", info.width, "GPU MetaXLink current link width.", map[string]string{
+				metric.NewGaugeData("metaxlink_link_width_lanes", float64(info.width), "GPU MetaXLink current link width.", map[string]string{
 					"gpu":       strconv.Itoa(gpu),
-					"metaxlink": strconv.Itoa(i),
+					"metaxlink": strconv.Itoa(i + 1),
 				}),
 			)
 		}
@@ -206,20 +218,62 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 	} else {
 		for i, info := range metaxlinkThroughputInfos {
 			metrics = append(metrics,
-				metric.NewGaugeData("metaxlink_throughput_receive_bytes_per_second", info.receiveRate*1000*1000, "GPU MetaXLink receive throughput.", map[string]string{
+				metric.NewGaugeData("metaxlink_receive_bytes_per_second", float64(info.receiveRate)*1000*1000, "GPU MetaXLink receive throughput.", map[string]string{
 					"gpu":       strconv.Itoa(gpu),
-					"metaxlink": strconv.Itoa(i),
+					"metaxlink": strconv.Itoa(i + 1),
 				}),
-				metric.NewGaugeData("metaxlink_throughput_transmit_bytes_per_second", info.transmitRate*1000*1000, "GPU MetaXLink transmit throughput.", map[string]string{
+				metric.NewGaugeData("metaxlink_transmit_bytes_per_second", float64(info.transmitRate)*1000*1000, "GPU MetaXLink transmit throughput.", map[string]string{
 					"gpu":       strconv.Itoa(gpu),
-					"metaxlink": strconv.Itoa(i),
+					"metaxlink": strconv.Itoa(i + 1),
+				}),
+			)
+		}
+	}
+
+	// MetaXLink traffic stat
+	if metaxlinkTrafficStatInfos, err := metaxSmlListGpuMetaxlinkTrafficStatInfos(gpu); metaxIsSmlOperationNotSupportedError(err) {
+
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to list metaxlink traffic stat infos: %v", err)
+	} else {
+		for i, info := range metaxlinkTrafficStatInfos {
+			metrics = append(metrics,
+				metric.NewCounterData("metaxlink_receive_bytes_total", float64(info.receive), "GPU MetaXLink receive data size.", map[string]string{
+					"gpu":       strconv.Itoa(gpu),
+					"metaxlink": strconv.Itoa(i + 1),
+				}),
+				metric.NewCounterData("metaxlink_transmit_bytes_total", float64(info.transmit), "GPU MetaXLink transmit data size.", map[string]string{
+					"gpu":       strconv.Itoa(gpu),
+					"metaxlink": strconv.Itoa(i + 1),
+				}),
+			)
+		}
+	}
+
+	// MetaXLink AER
+	if metaxlinkAerInfos, err := metaxSmlListGpuMetaxlinkAerInfos(gpu); metaxIsSmlOperationNotSupportedError(err) {
+
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to list metaxlink aer infos: %v", err)
+	} else {
+		for i, info := range metaxlinkAerInfos {
+			metrics = append(metrics,
+				metric.NewCounterData("metaxlink_aer_total", float64(info.ceCount), "GPU MetaXLink AER count.", map[string]string{
+					"gpu":       strconv.Itoa(gpu),
+					"metaxlink": strconv.Itoa(i + 1),
+					"type":      "correctable_error",
+				}),
+				metric.NewCounterData("metaxlink_aer_total", float64(info.ueCount), "GPU MetaXLink AER count.", map[string]string{
+					"gpu":       strconv.Itoa(gpu),
+					"metaxlink": strconv.Itoa(i + 1),
+					"type":      "uncorrectable_error",
 				}),
 			)
 		}
 	}
 
 	// Die
-	for die := 0; die < gpuInfo.dieCount; die++ {
+	for die := 0; die < int(gpuInfo.dieCount); die++ {
 		dieMetrics, err := metaxGetDieMetrics(gpu, die, gpuInfo.series)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get die %d metrics: %v", die, err)
@@ -235,27 +289,45 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 */
 
 var (
-	metaxTemperatureSensorMap = map[string]C.mxSmlTemperatureSensors_t{
+	metaxGpuTemperatureSensorMap = map[string]C.mxSmlTemperatureSensors_t{
 		"chip_hotspot": C.MXSML_Temperature_Hotspot,
 	}
-	metaxUtilizationIpMap = map[string]C.mxSmlUsageIp_t{
+	metaxGpuUtilizationIpMap = map[string]C.mxSmlUsageIp_t{
 		"vpue":  C.MXSML_Usage_Vpue,
 		"vpud":  C.MXSML_Usage_Vpud,
 		"xcore": C.MXSML_Usage_Xcore,
 	}
-	metaxClockIpMap = map[string]C.mxSmlClockIp_t{
+	metaxGpuClockIpMap = map[string]C.mxSmlClockIp_t{
 		"vpue":   C.MXSML_Clock_Vpue,
 		"vpud":   C.MXSML_Clock_Vpud,
 		"xcore":  C.MXSML_Clock_Xcore,
 		"memory": C.MXSML_Clock_Mc0,
 	}
+	metaxGpuDpmIpMap = map[string]C.mxSmlDpmIp_t{
+		"xcore": C.MXSML_Dpm_Xcore,
+	}
 )
+
+var metaxGpuClocksThrottleReasonMap = map[int]string{
+	1:  "idle",
+	2:  "application_limit",
+	3:  "over_power",
+	4:  "chip_overheated",
+	5:  "vr_overheated",
+	6:  "hbm_overheated",
+	7:  "thermal_overheated",
+	8:  "pcc",
+	9:  "power_brake",
+	10: "didt",
+	11: "low_usage",
+	12: "other",
+}
 
 func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, error) {
 	var metrics []*metric.Data
 
 	// Temperature
-	for sensor, sensorC := range metaxTemperatureSensorMap {
+	for sensor, sensorC := range metaxGpuTemperatureSensorMap {
 		if value, err := metaxSmlGetDieTemperature(gpu, die, sensorC); metaxIsSmlOperationNotSupportedError(err) {
 
 		} else if err != nil {
@@ -272,14 +344,14 @@ func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, er
 	}
 
 	// Utilization
-	for ip, ipC := range metaxUtilizationIpMap {
+	for ip, ipC := range metaxGpuUtilizationIpMap {
 		if value, err := metaxSmlGetDieUtilization(gpu, die, ipC); metaxIsSmlOperationNotSupportedError(err) {
 
 		} else if err != nil {
 			return nil, fmt.Errorf("failed to get %s utilization: %v", ip, err)
 		} else {
 			metrics = append(metrics,
-				metric.NewGaugeData("utilization_percent", value, "GPU utilization, ranging from 0 to 100.", map[string]string{
+				metric.NewGaugeData("utilization_percent", float64(value), "GPU utilization, ranging from 0 to 100.", map[string]string{
 					"gpu": strconv.Itoa(gpu),
 					"die": strconv.Itoa(die),
 					"ip":  ip,
@@ -307,7 +379,7 @@ func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, er
 	}
 
 	// Clock
-	for ip, ipC := range metaxClockIpMap {
+	for ip, ipC := range metaxGpuClockIpMap {
 		// SPECIAL >>
 		if ip == "memory" && series == metaxGpuSeriesN {
 			ipC = C.MXSML_Clock_Mc
@@ -320,7 +392,47 @@ func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, er
 			return nil, fmt.Errorf("failed to list %s clocks: %v", ip, err)
 		} else {
 			metrics = append(metrics,
-				metric.NewGaugeData("clock_hertz", values[0]*1000*1000, "GPU clock.", map[string]string{
+				metric.NewGaugeData("clock_hertz", float64(values[0])*1000*1000, "GPU clock.", map[string]string{
+					"gpu": strconv.Itoa(gpu),
+					"die": strconv.Itoa(die),
+					"ip":  ip,
+				}),
+			)
+		}
+	}
+
+	// Clocks throttle reason
+	if clocksThrottleReason, err := metaxSmlGetDieClocksThrottleReason(gpu, die); metaxIsSmlOperationNotSupportedError(err) {
+
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get clocks throttle reason: %v", err)
+	} else {
+		bits := GetBitsFromLsbToMsb(clocksThrottleReason)
+
+		for i, v := range bits {
+			if i > len(metaxGpuClocksThrottleReasonMap) {
+				break
+			}
+
+			metrics = append(metrics,
+				metric.NewGaugeData("clocks_throttle_status", float64(v), "GPU clocks throttle reason, 0 means not throttling by the reason, 1 means throttling by the reason.", map[string]string{
+					"gpu":    strconv.Itoa(gpu),
+					"die":    strconv.Itoa(die),
+					"reason": metaxGpuClocksThrottleReasonMap[i],
+				}),
+			)
+		}
+	}
+
+	// DPM performance level
+	for ip, ipC := range metaxGpuDpmIpMap {
+		if value, err := metaxSmlGetDieDpmPerformanceLevel(gpu, die, ipC); metaxIsSmlOperationNotSupportedError(err) {
+
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to get %s dpm performance level: %v", ip, err)
+		} else {
+			metrics = append(metrics,
+				metric.NewGaugeData("dpm_performance_level", float64(value), "GPU DPM performance level.", map[string]string{
 					"gpu": strconv.Itoa(gpu),
 					"die": strconv.Itoa(die),
 					"ip":  ip,
@@ -382,12 +494,12 @@ func metaxSmlGetMacaVersion() (string, error) {
 	return version, nil
 }
 
-func metaxSmlGetNativeAndVfGpuCount() int {
-	return int(C.mxSmlGetDeviceCount())
+func metaxSmlGetNativeAndVfGpuCount() uint {
+	return uint(C.mxSmlGetDeviceCount())
 }
 
-func metaxSmlGetPfGpuCount() int {
-	return int(C.mxSmlGetPfDeviceCount())
+func metaxSmlGetPfGpuCount() uint {
+	return uint(C.mxSmlGetPfDeviceCount())
 }
 
 /*
@@ -400,7 +512,7 @@ type metaxGpuInfo struct {
 	uuid     string
 	bdf      string
 	mode     metaxGpuMode
-	dieCount int
+	dieCount uint
 }
 
 type metaxGpuSeries string
@@ -472,14 +584,29 @@ func metaxSmlGetGpuInfo(gpu int) (metaxGpuInfo, error) {
 		uuid:     C.GoString(&(deviceInfo.uuid[0])),
 		bdf:      C.GoString(&(deviceInfo.bdfId[0])),
 		mode:     mode,
-		dieCount: int(dieCount),
+		dieCount: uint(dieCount),
 	}, nil
 }
 
+// metaxSmlGetGpuStatus
+// 0: not available
+// 1: available
+func metaxSmlGetGpuStatus(gpu int) (uint, error) {
+	var value C.uint
+
+	if returnCode := C.mxSmlGetDeviceState(C.uint(gpu), &value); returnCode == metaxSmlReturnCodeOperationNotSupported {
+		return 0, metaxSmlOperationNotSupportedErr
+	} else if returnCode != metaxSmlReturnCodeSuccess {
+		return 0, fmt.Errorf("mxSmlGetDeviceState failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
+	}
+
+	return uint(value), nil
+}
+
 type metaxGpuBoardWayElectricInfo struct {
-	voltage float64 // voltage in mV.
-	current float64 // current in mA.
-	power   float64 // power in mW.
+	voltage uint // voltage in mV.
+	current uint // current in mA.
+	power   uint // power in mW.
 }
 
 func metaxSmlListGpuBoardWayElectricInfos(gpu int) ([]metaxGpuBoardWayElectricInfo, error) {
@@ -499,9 +626,9 @@ func metaxSmlListGpuBoardWayElectricInfos(gpu int) ([]metaxGpuBoardWayElectricIn
 
 	for i := 0; i < actualSize; i++ {
 		result[i] = metaxGpuBoardWayElectricInfo{
-			voltage: float64(arr[i].voltage),
-			current: float64(arr[i].current),
-			power:   float64(arr[i].power),
+			voltage: uint(arr[i].voltage),
+			current: uint(arr[i].current),
+			power:   uint(arr[i].power),
 		}
 	}
 
@@ -514,7 +641,7 @@ func metaxSmlListGpuBoardWayElectricInfos(gpu int) ([]metaxGpuBoardWayElectricIn
 
 type metaxGpuPcieLinkInfo struct {
 	speed float64 // speed in GT/s.
-	width float64 // width in lanes.
+	width uint    // width in lanes.
 }
 
 func metaxSmlGetGpuPcieLinkInfo(gpu int) (metaxGpuPcieLinkInfo, error) {
@@ -527,7 +654,7 @@ func metaxSmlGetGpuPcieLinkInfo(gpu int) (metaxGpuPcieLinkInfo, error) {
 
 	return metaxGpuPcieLinkInfo{
 		speed: float64(pcieInfo.speed),
-		width: float64(pcieInfo.width),
+		width: uint(pcieInfo.width),
 	}, nil
 }
 
@@ -541,14 +668,13 @@ func metaxSmlGetGpuPcieLinkMaxInfo(gpu int) (metaxGpuPcieLinkInfo, error) {
 
 	return metaxGpuPcieLinkInfo{
 		speed: float64(pcieInfo.speed),
-		width: float64(pcieInfo.width),
+		width: uint(pcieInfo.width),
 	}, nil
 }
 
-// metaxGpuPcieThroughputInfo in MB/s.
 type metaxGpuPcieThroughputInfo struct {
-	receiveRate  float64
-	transmitRate float64
+	receiveRate  int // receiveRate in MB/s.
+	transmitRate int // transmitRate in MB/s.
 }
 
 func metaxSmlGetGpuPcieThroughputInfo(gpu int) (metaxGpuPcieThroughputInfo, error) {
@@ -560,8 +686,8 @@ func metaxSmlGetGpuPcieThroughputInfo(gpu int) (metaxGpuPcieThroughputInfo, erro
 	}
 
 	return metaxGpuPcieThroughputInfo{
-		receiveRate:  float64(pcieThroughput.rx),
-		transmitRate: float64(pcieThroughput.tx),
+		receiveRate:  int(pcieThroughput.rx),
+		transmitRate: int(pcieThroughput.tx),
 	}, nil
 }
 
@@ -577,7 +703,7 @@ const (
 
 type metaxGpuMetaxlinkLinkInfo struct {
 	speed float64 // speed in GT/s.
-	width float64 // width in lanes.
+	width uint    // width in lanes.
 }
 
 func metaxSmlListGpuMetaxlinkLinkInfos(gpu int) ([]metaxGpuMetaxlinkLinkInfo, error) {
@@ -596,17 +722,16 @@ func metaxSmlListGpuMetaxlinkLinkInfos(gpu int) ([]metaxGpuMetaxlinkLinkInfo, er
 	for i := 0; i < actualSize; i++ {
 		result[i] = metaxGpuMetaxlinkLinkInfo{
 			speed: float64(arr[i].speed),
-			width: float64(arr[i].width),
+			width: uint(arr[i].width),
 		}
 	}
 
 	return result, nil
 }
 
-// metaxGpuMetaxlinkThroughputInfo in MB/s.
 type metaxGpuMetaxlinkThroughputInfo struct {
-	receiveRate  float64
-	transmitRate float64
+	receiveRate  int // receiveRate in MB/s.
+	transmitRate int // transmitRate in MB/s.
 }
 
 func metaxSmlListGpuMetaxlinkThroughputInfos(gpu int) ([]metaxGpuMetaxlinkThroughputInfo, error) {
@@ -640,7 +765,7 @@ func metaxSmlListGpuMetaxlinkThroughputInfos(gpu int) ([]metaxGpuMetaxlinkThroug
 	return result, nil
 }
 
-func metaxSmlListGpuMetaxlinkThroughputParts(gpu int, typ C.mxSmlMetaXLinkType_t) ([]float64, error) {
+func metaxSmlListGpuMetaxlinkThroughputParts(gpu int, typ C.mxSmlMetaXLinkType_t) ([]int, error) {
 	arr := make([]C.mxSmlMetaXLinkBandwidth_t, metaxGpuMetaxlinkMaxNumber)
 	size := C.uint(metaxGpuMetaxlinkMaxNumber)
 
@@ -651,19 +776,18 @@ func metaxSmlListGpuMetaxlinkThroughputParts(gpu int, typ C.mxSmlMetaXLinkType_t
 	}
 
 	actualSize := int(size)
-	result := make([]float64, actualSize)
+	result := make([]int, actualSize)
 
 	for i := 0; i < actualSize; i++ {
-		result[i] = float64(arr[i].requestBandwidth)
+		result[i] = int(arr[i].requestBandwidth)
 	}
 
 	return result, nil
 }
 
-// metaxGpuMetaxlinkTrafficStatInfo in B.
 type metaxGpuMetaxlinkTrafficStatInfo struct {
-	receive  float64
-	transmit float64
+	receive  int64 // receive in bytes.
+	transmit int64 // transmit in bytes.
 }
 
 func metaxSmlListGpuMetaxlinkTrafficStatInfos(gpu int) ([]metaxGpuMetaxlinkTrafficStatInfo, error) {
@@ -697,7 +821,7 @@ func metaxSmlListGpuMetaxlinkTrafficStatInfos(gpu int) ([]metaxGpuMetaxlinkTraff
 	return result, nil
 }
 
-func metaxSmlListGpuMetaxlinkTrafficStatParts(gpu int, typ C.mxSmlMetaXLinkType_t) ([]float64, error) {
+func metaxSmlListGpuMetaxlinkTrafficStatParts(gpu int, typ C.mxSmlMetaXLinkType_t) ([]int64, error) {
 	arr := make([]C.mxSmlMetaXLinkTrafficStat_t, metaxGpuMetaxlinkMaxNumber)
 	size := C.uint(metaxGpuMetaxlinkMaxNumber)
 
@@ -708,10 +832,38 @@ func metaxSmlListGpuMetaxlinkTrafficStatParts(gpu int, typ C.mxSmlMetaXLinkType_
 	}
 
 	actualSize := int(size)
-	result := make([]float64, actualSize)
+	result := make([]int64, actualSize)
 
 	for i := 0; i < actualSize; i++ {
-		result[i] = float64(arr[i].requestTrafficStat)
+		result[i] = int64(arr[i].requestTrafficStat)
+	}
+
+	return result, nil
+}
+
+type metaxGpuMetaxlinkAerInfo struct {
+	ceCount int
+	ueCount int
+}
+
+func metaxSmlListGpuMetaxlinkAerInfos(gpu int) ([]metaxGpuMetaxlinkAerInfo, error) {
+	arr := make([]C.mxSmlMetaXLinkAer_t, metaxGpuMetaxlinkMaxNumber)
+	size := C.uint(metaxGpuMetaxlinkMaxNumber)
+
+	if returnCode := C.mxSmlGetMetaXLinkAer(C.uint(gpu), &size, &arr[0]); returnCode == metaxSmlReturnCodeOperationNotSupported {
+		return nil, metaxSmlOperationNotSupportedErr
+	} else if returnCode != metaxSmlReturnCodeSuccess {
+		return nil, fmt.Errorf("mxSmlGetMetaXLinkAer failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
+	}
+
+	actualSize := int(size)
+	result := make([]metaxGpuMetaxlinkAerInfo, actualSize)
+
+	for i := 0; i < actualSize; i++ {
+		result[i] = metaxGpuMetaxlinkAerInfo{
+			ceCount: int(arr[i].ceAer),
+			ueCount: int(arr[i].ueAer),
+		}
 	}
 
 	return result, nil
@@ -735,7 +887,7 @@ func metaxSmlGetDieTemperature(gpu, die int, sensor C.mxSmlTemperatureSensors_t)
 }
 
 // metaxSmlGetDieUtilization in [0, 100].
-func metaxSmlGetDieUtilization(gpu, die int, ip C.mxSmlUsageIp_t) (float64, error) {
+func metaxSmlGetDieUtilization(gpu, die int, ip C.mxSmlUsageIp_t) (int, error) {
 	var value C.int
 
 	if returnCode := C.mxSmlGetDieIpUsage(C.uint(gpu), C.uint(die), ip, &value); returnCode == metaxSmlReturnCodeOperationNotSupported {
@@ -744,13 +896,12 @@ func metaxSmlGetDieUtilization(gpu, die int, ip C.mxSmlUsageIp_t) (float64, erro
 		return 0, fmt.Errorf("mxSmlGetDieIpUsage failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
 	}
 
-	return float64(value), nil
+	return int(value), nil
 }
 
-// metaxDieMemoryInfo in KB.
 type metaxDieMemoryInfo struct {
-	total int64
-	used  int64
+	total int64 // total in KB.
+	used  int64 // used in KB.
 }
 
 func metaxSmlGetDieMemoryInfo(gpu, die int) (metaxDieMemoryInfo, error) {
@@ -768,7 +919,7 @@ func metaxSmlGetDieMemoryInfo(gpu, die int) (metaxDieMemoryInfo, error) {
 }
 
 // metaxSmlListDieClocks in MHz.
-func metaxSmlListDieClocks(gpu, die int, ip C.mxSmlClockIp_t) ([]float64, error) {
+func metaxSmlListDieClocks(gpu, die int, ip C.mxSmlClockIp_t) ([]uint, error) {
 	const maxClocksSize = 8
 
 	arr := make([]C.uint, maxClocksSize)
@@ -781,11 +932,43 @@ func metaxSmlListDieClocks(gpu, die int, ip C.mxSmlClockIp_t) ([]float64, error)
 	}
 
 	actualSize := int(size)
-	result := make([]float64, actualSize)
+	result := make([]uint, actualSize)
 
 	for i := 0; i < actualSize; i++ {
-		result[i] = float64(arr[i])
+		result[i] = uint(arr[i])
 	}
 
 	return result, nil
+}
+
+func metaxSmlGetDieClocksThrottleReason(gpu, die int) (uint64, error) {
+	var value C.ulonglong
+
+	if returnCode := C.mxSmlGetDieCurrentClocksThrottleReason(C.uint(gpu), C.uint(die), &value); returnCode == metaxSmlReturnCodeOperationNotSupported {
+		return 0, metaxSmlOperationNotSupportedErr
+	} else if returnCode != metaxSmlReturnCodeSuccess {
+		return 0, fmt.Errorf("mxSmlGetDieCurrentClocksThrottleReason failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
+	}
+
+	return uint64(value), nil
+}
+
+func metaxSmlGetDieDpmPerformanceLevel(gpu, die int, ip C.mxSmlDpmIp_t) (uint, error) {
+	var value C.uint
+
+	if returnCode := C.mxSmlGetCurrentDieDpmIpPerfLevel(C.uint(gpu), C.uint(die), ip, &value); returnCode == metaxSmlReturnCodeOperationNotSupported {
+		return 0, metaxSmlOperationNotSupportedErr
+	} else if returnCode != metaxSmlReturnCodeSuccess {
+		return 0, fmt.Errorf("mxSmlGetCurrentDieDpmIpPerfLevel failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
+	}
+
+	return uint(value), nil
+}
+
+func GetBitsFromLsbToMsb(x uint64) []uint8 {
+	bits := make([]uint8, 64)
+	for i := 0; i < 64; i++ {
+		bits[i] = uint8((x >> i) & 1)
+	}
+	return bits
 }
