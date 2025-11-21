@@ -250,23 +250,23 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 		}
 	}
 
-	// MetaXLink AER
-	if metaxlinkAerInfos, err := metaxSmlListGpuMetaxlinkAerInfos(gpu); metaxIsSmlOperationNotSupportedError(err) {
+	// MetaXLink AER errors
+	if metaxlinkAerErrorsInfos, err := metaxSmlListGpuMetaxlinkAerErrorsInfos(gpu); metaxIsSmlOperationNotSupportedError(err) {
 
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to list metaxlink aer infos: %v", err)
+		return nil, fmt.Errorf("failed to list metaxlink aer errors infos: %v", err)
 	} else {
-		for i, info := range metaxlinkAerInfos {
+		for i, info := range metaxlinkAerErrorsInfos {
 			metrics = append(metrics,
-				metric.NewCounterData("metaxlink_aer_total", float64(info.ceCount), "GPU MetaXLink AER count.", map[string]string{
-					"gpu":       strconv.Itoa(gpu),
-					"metaxlink": strconv.Itoa(i + 1),
-					"type":      "correctable_error",
+				metric.NewCounterData("metaxlink_aer_errors_total", float64(info.correctableErrorsCount), "GPU MetaXLink AER errors count.", map[string]string{
+					"gpu":        strconv.Itoa(gpu),
+					"metaxlink":  strconv.Itoa(i + 1),
+					"error_type": "ce",
 				}),
-				metric.NewCounterData("metaxlink_aer_total", float64(info.ueCount), "GPU MetaXLink AER count.", map[string]string{
-					"gpu":       strconv.Itoa(gpu),
-					"metaxlink": strconv.Itoa(i + 1),
-					"type":      "uncorrectable_error",
+				metric.NewCounterData("metaxlink_aer_errors_total", float64(info.uncorrectableErrorsCount), "GPU MetaXLink AER errors count.", map[string]string{
+					"gpu":        strconv.Itoa(gpu),
+					"metaxlink":  strconv.Itoa(i + 1),
+					"error_type": "ue",
 				}),
 			)
 		}
@@ -308,7 +308,7 @@ var (
 	}
 )
 
-var metaxGpuClocksThrottleReasonMap = map[int]string{
+var metaxGpuClocksThrottleBitReasonMap = map[int]string{
 	1:  "idle",
 	2:  "application_limit",
 	3:  "over_power",
@@ -401,24 +401,29 @@ func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, er
 		}
 	}
 
-	// Clocks throttle reason
-	if clocksThrottleReason, err := metaxSmlGetDieClocksThrottleReason(gpu, die); metaxIsSmlOperationNotSupportedError(err) {
+	// Clocks throttle status
+	if clocksThrottleStatus, err := metaxSmlGetDieClocksThrottleStatus(gpu, die); metaxIsSmlOperationNotSupportedError(err) {
 
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get clocks throttle reason: %v", err)
+		return nil, fmt.Errorf("failed to get clocks throttle status: %v", err)
 	} else {
-		bits := GetBitsFromLsbToMsb(clocksThrottleReason)
+		bits := GetBitsFromLsbToMsb(clocksThrottleStatus)
 
 		for i, v := range bits {
-			if i > len(metaxGpuClocksThrottleReasonMap) {
+			if i > len(metaxGpuClocksThrottleBitReasonMap) {
 				break
 			}
 
+			if v == 0 {
+				// Metrics are not exported when not throttling.
+				// continue
+			}
+
 			metrics = append(metrics,
-				metric.NewGaugeData("clocks_throttle_status", float64(v), "GPU clocks throttle reason, 0 means not throttling by the reason, 1 means throttling by the reason.", map[string]string{
+				metric.NewGaugeData("clocks_throttle_status", float64(v), "GPU clocks throttle status, 0 means not throttling by the reason, 1 means throttling by the reason.", map[string]string{
 					"gpu":    strconv.Itoa(gpu),
 					"die":    strconv.Itoa(die),
-					"reason": metaxGpuClocksThrottleReasonMap[i],
+					"reason": metaxGpuClocksThrottleBitReasonMap[i],
 				}),
 			)
 		}
@@ -439,6 +444,44 @@ func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, er
 				}),
 			)
 		}
+	}
+
+	// Ecc memory
+	if eccMemoryInfo, err := metaxSmlGetDieEccMemoryInfo(gpu, die); metaxIsSmlOperationNotSupportedError(err) {
+
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get ecc memory info: %v", err)
+	} else {
+		metrics = append(metrics,
+			metric.NewCounterData("ecc_memory_errors_total", float64(eccMemoryInfo.sramCorrectableErrorsCount), "GPU ECC memory errors count.", map[string]string{
+				"gpu":         strconv.Itoa(gpu),
+				"die":         strconv.Itoa(die),
+				"memory_type": "sram",
+				"error_type":  "ce",
+			}),
+			metric.NewCounterData("ecc_memory_errors_total", float64(eccMemoryInfo.sramUncorrectableErrorsCount), "GPU ECC memory errors count.", map[string]string{
+				"gpu":         strconv.Itoa(gpu),
+				"die":         strconv.Itoa(die),
+				"memory_type": "sram",
+				"error_type":  "ue",
+			}),
+			metric.NewCounterData("ecc_memory_errors_total", float64(eccMemoryInfo.dramCorrectableErrorsCount), "GPU ECC memory errors count.", map[string]string{
+				"gpu":         strconv.Itoa(gpu),
+				"die":         strconv.Itoa(die),
+				"memory_type": "dram",
+				"error_type":  "ce",
+			}),
+			metric.NewCounterData("ecc_memory_errors_total", float64(eccMemoryInfo.dramUncorrectableErrorsCount), "GPU ECC memory errors count.", map[string]string{
+				"gpu":         strconv.Itoa(gpu),
+				"die":         strconv.Itoa(die),
+				"memory_type": "dram",
+				"error_type":  "ue",
+			}),
+			metric.NewCounterData("ecc_memory_retired_pages_total", float64(eccMemoryInfo.retiredPagesCount), "GPU ECC memory retired pages count.", map[string]string{
+				"gpu": strconv.Itoa(gpu),
+				"die": strconv.Itoa(die),
+			}),
+		)
 	}
 
 	return metrics, nil
@@ -646,6 +689,7 @@ type metaxGpuPcieLinkInfo struct {
 
 func metaxSmlGetGpuPcieLinkInfo(gpu int) (metaxGpuPcieLinkInfo, error) {
 	var pcieInfo C.mxSmlPcieInfo_t
+
 	if returnCode := C.mxSmlGetPcieInfo(C.uint(gpu), &pcieInfo); returnCode == metaxSmlReturnCodeOperationNotSupported {
 		return metaxGpuPcieLinkInfo{}, metaxSmlOperationNotSupportedErr
 	} else if returnCode != metaxSmlReturnCodeSuccess {
@@ -660,6 +704,7 @@ func metaxSmlGetGpuPcieLinkInfo(gpu int) (metaxGpuPcieLinkInfo, error) {
 
 func metaxSmlGetGpuPcieLinkMaxInfo(gpu int) (metaxGpuPcieLinkInfo, error) {
 	var pcieInfo C.mxSmlPcieInfo_t
+
 	if returnCode := C.mxSmlGetPcieMaxLinkInfo(C.uint(gpu), &pcieInfo); returnCode == metaxSmlReturnCodeOperationNotSupported {
 		return metaxGpuPcieLinkInfo{}, metaxSmlOperationNotSupportedErr
 	} else if returnCode != metaxSmlReturnCodeSuccess {
@@ -679,6 +724,7 @@ type metaxGpuPcieThroughputInfo struct {
 
 func metaxSmlGetGpuPcieThroughputInfo(gpu int) (metaxGpuPcieThroughputInfo, error) {
 	var pcieThroughput C.mxSmlPcieThroughput_t
+
 	if returnCode := C.mxSmlGetPcieThroughput(C.uint(gpu), &pcieThroughput); returnCode == metaxSmlReturnCodeOperationNotSupported {
 		return metaxGpuPcieThroughputInfo{}, metaxSmlOperationNotSupportedErr
 	} else if returnCode != metaxSmlReturnCodeSuccess {
@@ -841,12 +887,12 @@ func metaxSmlListGpuMetaxlinkTrafficStatParts(gpu int, typ C.mxSmlMetaXLinkType_
 	return result, nil
 }
 
-type metaxGpuMetaxlinkAerInfo struct {
-	ceCount int
-	ueCount int
+type metaxGpuMetaxlinkAerErrorsInfo struct {
+	correctableErrorsCount   int
+	uncorrectableErrorsCount int
 }
 
-func metaxSmlListGpuMetaxlinkAerInfos(gpu int) ([]metaxGpuMetaxlinkAerInfo, error) {
+func metaxSmlListGpuMetaxlinkAerErrorsInfos(gpu int) ([]metaxGpuMetaxlinkAerErrorsInfo, error) {
 	arr := make([]C.mxSmlMetaXLinkAer_t, metaxGpuMetaxlinkMaxNumber)
 	size := C.uint(metaxGpuMetaxlinkMaxNumber)
 
@@ -857,12 +903,12 @@ func metaxSmlListGpuMetaxlinkAerInfos(gpu int) ([]metaxGpuMetaxlinkAerInfo, erro
 	}
 
 	actualSize := int(size)
-	result := make([]metaxGpuMetaxlinkAerInfo, actualSize)
+	result := make([]metaxGpuMetaxlinkAerErrorsInfo, actualSize)
 
 	for i := 0; i < actualSize; i++ {
-		result[i] = metaxGpuMetaxlinkAerInfo{
-			ceCount: int(arr[i].ceAer),
-			ueCount: int(arr[i].ueAer),
+		result[i] = metaxGpuMetaxlinkAerErrorsInfo{
+			correctableErrorsCount:   int(arr[i].ceAer),
+			uncorrectableErrorsCount: int(arr[i].ueAer),
 		}
 	}
 
@@ -906,6 +952,7 @@ type metaxDieMemoryInfo struct {
 
 func metaxSmlGetDieMemoryInfo(gpu, die int) (metaxDieMemoryInfo, error) {
 	var memoryInfo C.mxSmlMemoryInfo_t
+
 	if returnCode := C.mxSmlGetDieMemoryInfo(C.uint(gpu), C.uint(die), &memoryInfo); returnCode == metaxSmlReturnCodeOperationNotSupported {
 		return metaxDieMemoryInfo{}, metaxSmlOperationNotSupportedErr
 	} else if returnCode != metaxSmlReturnCodeSuccess {
@@ -941,7 +988,7 @@ func metaxSmlListDieClocks(gpu, die int, ip C.mxSmlClockIp_t) ([]uint, error) {
 	return result, nil
 }
 
-func metaxSmlGetDieClocksThrottleReason(gpu, die int) (uint64, error) {
+func metaxSmlGetDieClocksThrottleStatus(gpu, die int) (uint64, error) {
 	var value C.ulonglong
 
 	if returnCode := C.mxSmlGetDieCurrentClocksThrottleReason(C.uint(gpu), C.uint(die), &value); returnCode == metaxSmlReturnCodeOperationNotSupported {
@@ -964,6 +1011,36 @@ func metaxSmlGetDieDpmPerformanceLevel(gpu, die int, ip C.mxSmlDpmIp_t) (uint, e
 
 	return uint(value), nil
 }
+
+type metaxDieEccMemoryInfo struct {
+	sramCorrectableErrorsCount   uint
+	sramUncorrectableErrorsCount uint
+	dramCorrectableErrorsCount   uint
+	dramUncorrectableErrorsCount uint
+	retiredPagesCount            uint
+}
+
+func metaxSmlGetDieEccMemoryInfo(gpu, die int) (metaxDieEccMemoryInfo, error) {
+	var eccErrorCount C.mxSmlEccErrorCount_t
+
+	if returnCode := C.mxSmlGetDieTotalEccErrors(C.uint(gpu), C.uint(die), &eccErrorCount); returnCode == metaxSmlReturnCodeOperationNotSupported {
+		return metaxDieEccMemoryInfo{}, metaxSmlOperationNotSupportedErr
+	} else if returnCode != metaxSmlReturnCodeSuccess {
+		return metaxDieEccMemoryInfo{}, fmt.Errorf("mxSmlGetDieTotalEccErrors failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
+	}
+
+	return metaxDieEccMemoryInfo{
+		sramCorrectableErrorsCount:   uint(eccErrorCount.sramCE),
+		sramUncorrectableErrorsCount: uint(eccErrorCount.sramUE),
+		dramCorrectableErrorsCount:   uint(eccErrorCount.dramCE),
+		dramUncorrectableErrorsCount: uint(eccErrorCount.dramUE),
+		retiredPagesCount:            uint(eccErrorCount.retiredPage),
+	}, nil
+}
+
+/*
+  Utils
+*/
 
 func GetBitsFromLsbToMsb(x uint64) []uint8 {
 	bits := make([]uint8, 64)
