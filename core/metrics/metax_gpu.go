@@ -58,7 +58,11 @@ func (m *metaxGpuCollector) Update() ([]*metric.Data, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get maca version: %v", err)
 	} else {
-
+		metrics = append(metrics,
+			metric.NewGaugeData("maca_sdk_info", 1, "GPU MACA SDK info.", map[string]string{
+				"version": macaVersion,
+			}),
+		)
 	}
 
 	var gpus []int
@@ -113,7 +117,7 @@ func metaxGetGpuMetrics(gpu int) ([]*metric.Data, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get gpu status: %v", err)
 	} else {
-		metric.NewGaugeData("available", float64(gpuStatus), "GPU status, 0 means not available, 1 means available.", map[string]string{
+		metric.NewGaugeData("available", float64(gpuStatus), "GPU availability, 0 means not available, 1 means available.", map[string]string{
 			"gpu": strconv.Itoa(gpu),
 		})
 	}
@@ -325,6 +329,20 @@ var metaxGpuClocksThrottleBitReasonMap = map[int]string{
 
 func metaxGetDieMetrics(gpu, die int, series metaxGpuSeries) ([]*metric.Data, error) {
 	var metrics []*metric.Data
+
+	// Die status
+	if dieStatus, err := metaxSmlGetDieStatus(gpu, die); metaxIsSmlOperationNotSupportedError(err) {
+
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get die status: %v", err)
+	} else {
+		metrics = append(metrics,
+			metric.NewGaugeData("status", float64(dieStatus), "GPU status, 0 means normal, other values means abnormal. Check the documentation to see the exceptions corresponding to each value.", map[string]string{
+				"gpu": strconv.Itoa(gpu),
+				"die": strconv.Itoa(die),
+			}),
+		)
+	}
 
 	// Temperature
 	for sensor, sensorC := range metaxGpuTemperatureSensorMap {
@@ -918,6 +936,18 @@ func metaxSmlListGpuMetaxlinkAerErrorsInfos(gpu int) ([]metaxGpuMetaxlinkAerErro
 /*
   Die
 */
+
+func metaxSmlGetDieStatus(gpu, die int) (int, error) {
+	var deviceUnavailableReasonInfo C.mxSmlDeviceUnavailableReasonInfo_t
+
+	if returnCode := C.mxSmlGetDieUnavailableReason(C.uint(gpu), C.uint(die), &deviceUnavailableReasonInfo); returnCode == metaxSmlReturnCodeOperationNotSupported {
+		return 0, metaxSmlOperationNotSupportedErr
+	} else if returnCode != metaxSmlReturnCodeSuccess {
+		return 0, fmt.Errorf("mxSmlGetDieUnavailableReason failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
+	}
+
+	return int(deviceUnavailableReasonInfo.unavailableCode), nil
+}
 
 // metaxSmlGetDieTemperature in ℃.
 func metaxSmlGetDieTemperature(gpu, die int, sensor C.mxSmlTemperatureSensors_t) (float64, error) {
