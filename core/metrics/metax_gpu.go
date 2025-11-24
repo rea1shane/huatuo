@@ -652,8 +652,8 @@ func metaxSmlGetGpuInfo(gpu int) (metaxGpuInfo, error) {
 // metaxSmlGetGpuStatus
 // 0: not available
 // 1: available
-func metaxSmlGetGpuStatus(gpu int) (uint, error) {
-	var value C.uint
+func metaxSmlGetGpuStatus(gpu int) (int, error) {
+	var value C.int
 
 	if returnCode := C.mxSmlGetDeviceState(C.uint(gpu), &value); returnCode == metaxSmlReturnCodeOperationNotSupported {
 		return 0, metaxSmlOperationNotSupportedErr
@@ -661,7 +661,7 @@ func metaxSmlGetGpuStatus(gpu int) (uint, error) {
 		return 0, fmt.Errorf("mxSmlGetDeviceState failed: %s", C.GoString(C.mxSmlGetErrorString(returnCode)))
 	}
 
-	return uint(value), nil
+	return int(value), nil
 }
 
 type metaxGpuBoardWayElectricInfo struct {
